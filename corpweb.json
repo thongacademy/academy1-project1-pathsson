@@ -1,0 +1,241 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Resources": {
+    "classVpc": {
+      "Type": "AWS::EC2::VPC",
+      "Properties": {
+        "EnableDnsSupport": "true",
+        "EnableDnsHostnames": "true",
+        "CidrBlock": "10.0.0.0/18",
+        "Tags": [
+          {
+            "Key": "Environment",
+            "Value": "Test"
+          }
+        ]
+      }
+    },
+    "publicSubnet1": {
+      "Type": "AWS::EC2::Subnet",
+      "Properties": {
+        "VpcId": {
+          "Ref": "classVpc"
+        },
+        "CidrBlock": "10.0.0.0/24",
+        "AvailabilityZone" : "us-east-1a"
+      }
+    },
+	"publicSubnet2": {
+      "Type": "AWS::EC2::Subnet",
+      "Properties": {
+        "VpcId": {
+          "Ref": "classVpc"
+        },
+        "CidrBlock": "10.0.1.0/24",
+        "AvailabilityZone" : "us-east-1b"
+      }
+    },
+    "web1":{
+	  "Type": "AWS::EC2::Instance",
+	  "Properties" : {
+		"InstanceType" : { "Ref" : "InstanceType" },
+		"AvailabilityZone" : "us-east-1a",
+		"KeyName" : {"Ref":"KeyName"},
+		"ImageId" : "ami-3ea13f29",
+		"NetworkInterfaces": [ {
+		  "AssociatePublicIpAddress": "true",
+		  "DeviceIndex": "0",
+		  "GroupSet": [{"Ref":"webserverSG"}],
+		  "SubnetId": { "Ref" : "publicSubnet1" }
+		} ]		
+	  }
+	},
+	"web2":{
+	  "Type": "AWS::EC2::Instance",
+	  "Properties" : {
+		"InstanceType" : { "Ref" : "InstanceType" },
+		"AvailabilityZone" : "us-east-1b",
+		"KeyName" : {"Ref":"KeyName"},
+		"ImageId" : "ami-3ea13f29",
+		"NetworkInterfaces": [ {
+		  "AssociatePublicIpAddress": "true",
+		  "DeviceIndex": "0",
+		  "GroupSet": [{"Ref":"webserverSG"}],
+		  "SubnetId": { "Ref" : "publicSubnet2" }
+		} ]				
+	  }
+	},
+    "webserverSG": {
+      "Type": "AWS::EC2::SecurityGroup",
+      "Properties": {
+        "VpcId": {
+          "Ref": "classVpc"
+        },
+        "GroupDescription": "Allow access from HTTP and SSH traffic",
+        "SecurityGroupIngress": [
+		  {
+            "IpProtocol": "tcp",
+            "FromPort": "80",
+            "ToPort": "80",
+            "CidrIp": "0.0.0.0/0"
+          },
+          {
+            "IpProtocol": "tcp",
+            "FromPort": "22",
+            "ToPort": "22",
+            "CidrIp": {"Ref": "YourIp"}
+          }
+        ]
+      }
+    },
+    "InternetGateway": {
+      "Type": "AWS::EC2::InternetGateway",
+      "Properties": {}
+    },
+    "EC2VPCG509RW": {
+      "Type": "AWS::EC2::VPCGatewayAttachment",
+      "Properties": {
+        "InternetGatewayId": {
+          "Ref": "InternetGateway"
+        },
+        "VpcId": {
+          "Ref": "classVpc"
+        }
+      }
+    },
+    "PublicRouteTable": {
+      "Type": "AWS::EC2::RouteTable",
+      "Properties": {
+        "VpcId": {
+          "Ref": "classVpc"
+        }
+      }
+    },
+    "PublicRoute": {
+      "Type": "AWS::EC2::Route",
+      "Properties": {
+        "DestinationCidrBlock": "0.0.0.0/0",
+        "RouteTableId": {
+          "Ref": "PublicRouteTable"
+        },
+        "GatewayId": {
+          "Ref": "InternetGateway"
+        }
+      },
+      "DependsOn": [
+        "InternetGateway"
+      ]
+    },
+    "publicSubnet1RTassoc": {
+      "Type": "AWS::EC2::SubnetRouteTableAssociation",
+      "Properties": {
+        "RouteTableId": {
+          "Ref": "PublicRouteTable"
+        },
+        "SubnetId": {
+          "Ref": "publicSubnet1"
+        }
+      }
+    },
+	"publicSubnet2RTassoc": {
+      "Type": "AWS::EC2::SubnetRouteTableAssociation",
+      "Properties": {
+        "RouteTableId": {
+          "Ref": "PublicRouteTable"
+        },
+        "SubnetId": {
+          "Ref": "publicSubnet2"
+        }
+      }
+    },
+	"EngineeringLB": {
+		"Type" : "AWS::ElasticLoadBalancingV2::LoadBalancer",
+		"Properties" : {    
+			"Name" : "EngineeringLB",
+			"SecurityGroups" : [{"Ref":"webserverSG"}],
+			"Subnets" : [{"Ref":"publicSubnet1"},{"Ref":"publicSubnet2"}],
+			"Tags" : [{"Key" : "Name", "Value" : "AcademySession25LB"}],
+			"Type" : "application"
+		}	
+	},
+	"EngineeringWebservers": {
+	  "Type" : "AWS::ElasticLoadBalancingV2::TargetGroup",
+	  "Properties" : {
+		"Port" : "80",
+		"Protocol" : "HTTP",
+		"HealthCheckIntervalSeconds" : 60,
+		"UnhealthyThresholdCount" : 10,
+		"HealthCheckPath" : "/index.php",
+		"TargetType" : "instance",
+		"VpcId" : {"Ref":"classVpc"},
+		"Targets" : [ 
+			{
+				"Id" : {"Ref":"web1"},
+				"Port" : "80"
+			}, 
+			{
+				"Id" : {"Ref":"web2"},
+				"Port" : "80"
+			} 
+		]		
+	  }	
+	}
+  },
+  "Parameters": {
+    "InstanceType": {
+      "Description": "Server instance type",
+      "Type": "String",
+      "Default": "t2.micro",
+      "AllowedValues": [
+        "t2.micro",
+        "t2.small"
+      ],
+      "ConstraintDescription": "Must be a valid EC2 type."
+    },
+	"KeyName": {
+      "Description": "Name of your EC2 KeyPair to enable SSH access to the instances.",
+      "Type": "AWS::EC2::KeyPair::KeyName",
+      "ConstraintDescription": "must be the name of an existing EC2 KeyPair."
+    },
+	"YourIp": {
+      "Description": "The current CIDR IP address of your workstation (x.x.x.x/32).",
+      "Type": "String"
+    }
+  },
+  "Outputs": {
+    "weburl1": {
+      "Value": {
+        "Fn::Join": [
+          "",
+          [
+            "http://",
+            {
+              "Fn::GetAtt": [
+                "web1",
+                "PublicIp"
+              ]
+            }
+          ]
+        ]
+      },
+      "Description": "web1 URL"
+    },
+	"weburl2": {
+      "Value": {
+        "Fn::Join": [
+          "",
+          [
+            "http://",
+            {
+              "Fn::GetAtt": [
+                "web2",
+                "PublicIp"
+              ]
+            }
+          ]
+        ]
+      },
+      "Description": "web2 URL"
+    }
+  }
+}
